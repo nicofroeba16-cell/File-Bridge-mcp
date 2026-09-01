@@ -11,13 +11,13 @@ from typing import Any
 from fastapi import HTTPException
 
 try:
-    from .security import safe_config_path
+    from .security import safe_config_path, validate_text_content
 except ImportError:
-    from security import safe_config_path
+    from security import safe_config_path, validate_text_content
 
 
 class LocalWorkspace:
-    """Local-only /config simulator used for 0.5.0 development and E2E tests."""
+    """Local-only /config simulator used for development and E2E tests."""
     def __init__(self, root: str | Path):
         self.root = Path(root).resolve()
         self.backups = self.root / ".ai-backups"
@@ -28,6 +28,11 @@ class LocalWorkspace:
         p = (self.root / safe).resolve()
         if self.root not in p.parents and p != self.root:
             raise HTTPException(400, "path escapes workspace")
+        # A symlink can otherwise redirect a safe-looking relative path to a
+        # protected or external location. Existing symlinks are never followed.
+        candidate = self.root / safe
+        if candidate.is_symlink():
+            raise HTTPException(403, "symlink paths are not allowed")
         return p
 
     def read(self, rel: str) -> dict[str, Any]:
@@ -35,22 +40,45 @@ class LocalWorkspace:
         if not p.is_file():
             raise HTTPException(404, f"file not found: {rel}")
         data = p.read_bytes()
-        text = data.decode("utf-8")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(415, "file is not valid UTF-8 text")
         return {"path": safe_config_path(rel), "content": text, "sha256": hashlib.sha256(data).hexdigest()}
 
     def list(self, rel: str = ".") -> list[str]:
-        base = self.root if rel in (".", "") else self.path(rel)
+        if rel in (".", ""):
+            base = self.root
+        else:
+            base = self.path(rel)
         if not base.exists():
             raise HTTPException(404, f"path not found: {rel}")
         if base.is_file():
             return [safe_config_path(rel)]
-        return sorted(str(p.relative_to(self.root)) for p in base.rglob("*") if p.is_file() and ".ai-backups" not in p.parts)
+        out = []
+        for p in base.rglob("*"):
+            if not p.is_file() or ".ai-backups" in p.parts:
+                continue
+            try:
+                relative = p.relative_to(self.root)
+                safe_config_path(str(relative))
+            except HTTPException:
+                continue
+            if p.is_symlink():
+                continue
+            out.append(str(relative))
+        return sorted(out)
 
     def search(self, query: str, path: str = ".", regex: bool = False, max_results: int = 100) -> list[dict[str, Any]]:
         if not query:
             raise HTTPException(400, "query must not be empty")
+        if max_results < 1 or max_results > 1000:
+            raise HTTPException(400, "max_results must be between 1 and 1000")
         files = self.list(path)
-        rx = re.compile(query, re.MULTILINE) if regex else None
+        try:
+            rx = re.compile(query, re.MULTILINE) if regex else None
+        except re.error as exc:
+            raise HTTPException(400, f"invalid regex: {exc}")
         out = []
         for rel in files:
             text = self.read(rel)["content"]
@@ -73,7 +101,7 @@ class LocalWorkspace:
             "empty_lines": len(lines) - len(nonempty), "ends_with_newline": text.endswith("\n"),
         }
         suffix = Path(rel).suffix.lower()
-        if suffix in {".json"}:
+        if suffix == ".json":
             try:
                 obj = json.loads(text)
                 result["syntax"] = "valid-json"
@@ -88,6 +116,7 @@ class LocalWorkspace:
         return result
 
     def write(self, rel: str, content: str, expected_sha256: str | None = None) -> dict[str, Any]:
+        validate_text_content(content)
         p = self.path(rel)
         if expected_sha256 is not None and p.exists():
             actual = hashlib.sha256(p.read_bytes()).hexdigest()
@@ -100,6 +129,10 @@ class LocalWorkspace:
     def patch(self, rel: str, old: str, new: str, expected_sha256: str | None = None, count: int = 1) -> dict[str, Any]:
         if not old:
             raise HTTPException(400, "old text must not be empty")
+        if count < 1 or count > 100:
+            raise HTTPException(400, "count must be between 1 and 100")
+        validate_text_content(old)
+        validate_text_content(new)
         current = self.read(rel)
         if expected_sha256 and current["sha256"] != expected_sha256:
             raise HTTPException(409, "file changed since it was read (sha256 conflict)")
@@ -113,16 +146,20 @@ class LocalWorkspace:
         files = self.list(rel)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         snap = self.backups / stamp
+        suffix = 0
+        while snap.exists():
+            suffix += 1
+            snap = self.backups / f"{stamp}-{suffix:02d}"
         snap.mkdir(parents=True)
         for f in files:
             src = self.path(f)
             dst = snap / f
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
-        return {"backup_id": stamp, "files": files, "path": str(snap)}
+        return {"backup_id": snap.name, "files": files, "path": str(snap)}
 
     def rollback(self, backup_id: str) -> dict[str, Any]:
-        if not re.fullmatch(r"\d{8}T\d{6}Z", backup_id):
+        if not re.fullmatch(r"\d{8}T\d{6}Z(?:-\d{2})?", backup_id):
             raise HTTPException(400, "invalid backup_id")
         snap = self.backups / backup_id
         if not snap.is_dir():
