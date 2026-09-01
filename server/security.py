@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+MAX_PATH_LENGTH = 500
+MAX_TEXT_BYTES = 4 * 1024 * 1024
+
 ALLOWED_PREFIXES = (
     "ha info",
     "ha core info",
@@ -34,7 +37,7 @@ MUTATING_PREFIXES = (
 PROTECTED_DIRS = (
     ".storage", ".cloud", ".ssh", ".cache", "backups", "tts", "media",
 )
-PROTECTED_SUFFIXES = (".db", ".sqlite", ".sqlite3", ".log", ".pem", ".key", ".p12", ".pfx")
+PROTECTED_SUFFIXES = (".db", ".sqlite", ".sqlite3", ".sqlite-wal", ".sqlite-shm", ".log", ".pem", ".key", ".p12", ".pfx")
 
 
 def normalize_command(command: str) -> str:
@@ -55,6 +58,8 @@ def command_is_mutating(command: str) -> bool:
 
 
 def safe_config_path(path: str) -> str:
+    if not isinstance(path, str) or len(path) > MAX_PATH_LENGTH:
+        raise HTTPException(400, "invalid relative /config path")
     p = path.strip().lstrip("/")
     if p.startswith("config/"):
         p = p[7:]
@@ -65,3 +70,10 @@ def safe_config_path(path: str) -> str:
     if p == "secrets.yaml" or p.endswith("/secrets.yaml") or p.endswith(PROTECTED_SUFFIXES):
         raise HTTPException(403, "protected runtime/secret file")
     return p
+
+
+def validate_text_content(content: str) -> None:
+    if not isinstance(content, str):
+        raise HTTPException(400, "content must be UTF-8 text")
+    if len(content.encode("utf-8")) > MAX_TEXT_BYTES:
+        raise HTTPException(413, f"content exceeds {MAX_TEXT_BYTES} byte limit")
