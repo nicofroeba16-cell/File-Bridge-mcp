@@ -17,6 +17,7 @@ try:
     from .local_workspace import LocalWorkspace
     from .control_mcp import dispatch_control
     from .status_store import StatusStore
+    from .repository_audit import audit_repository
 except ImportError:
     from config import BridgeConfig
     from github_transport import GitHubTransport
@@ -26,8 +27,9 @@ except ImportError:
     from local_workspace import LocalWorkspace
     from control_mcp import dispatch_control
     from status_store import StatusStore
+    from repository_audit import audit_repository
 
-APP_VERSION = "0.9.6-dev"
+APP_VERSION = "0.9.7-dev"
 DEFAULT_TIMEOUT = 180
 config = BridgeConfig.from_env()
 transport = GitHubTransport()
@@ -37,7 +39,7 @@ transport.retries = config.github_retries
 transport.poll_seconds = config.poll_seconds
 workspace = LocalWorkspace(__import__("os").environ.get("HA_LOCAL_WORKSPACE", "/tmp/ha-grok-bridge-0.5.0-workspace"), backup_retention=config.backup_retention)
 status_store = StatusStore(__import__("os").environ.get("HA_STATUS_FILE", "/tmp/ha-grok-bridge-status.json"))
-app = FastAPI(title="HA Grok Bridge 0.9.6", version=APP_VERSION)
+app = FastAPI(title="HA Grok Bridge 0.9.7", version=APP_VERSION)
 
 class CommandRequest(BaseModel):
     command: str = Field(min_length=1, max_length=1000)
@@ -52,12 +54,12 @@ class VerifyRequest(BaseModel):
     command_id: str = Field(min_length=1, max_length=100)
 
 def new_id() -> str:
-    return f"ha-096-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
+    return f"ha-097-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
 
 async def execute(command: str, allow_mutation: bool, timeout: int) -> dict[str, Any]:
     command = command.strip()
     if not command_allowed(command):
-        raise HTTPException(403, "command is not allowed by the 0.9.6 server policy")
+        raise HTTPException(403, "command is not allowed by the 0.9.7 server policy")
     if command_is_mutating(command) and not allow_mutation:
         raise HTTPException(409, "mutation requires explicit allow_mutation=true")
     command_id = new_id()
@@ -83,9 +85,14 @@ async def bridge_status() -> dict[str, Any]:
     status = status_store.load()
     return {"version": APP_VERSION, **status.__dict__}
 
+@app.get("/audit")
+async def repository_audit() -> dict[str, Any]:
+    report = audit_repository(__import__("os").environ.get("HA_REPOSITORY_ROOT", "."))
+    return {"clean": report.clean, "tracked_files": list(report.tracked_files), "protected_tracked": list(report.protected_tracked), "secret_findings": list(report.secret_findings), "history_protected": list(report.history_protected)}
+
 @app.get("/capabilities")
 async def capabilities() -> dict[str, Any]:
-    return {"version": APP_VERSION, "mode": "read-only-default", "transport": "github-command-result", "tools": tool_list()["tools"], "mutations": "explicit-confirmation-required", "backup_restore": True, "dry_run": True, "secret_audit": True, "reliability": True, "atomic_deployment": True, "status_health": True, "configuration": True}
+    return {"version": APP_VERSION, "mode": "read-only-default", "transport": "github-command-result", "tools": tool_list()["tools"], "mutations": "explicit-confirmation-required", "backup_restore": True, "dry_run": True, "secret_audit": True, "reliability": True, "atomic_deployment": True, "status_health": True, "configuration": True, "repository_audit": True}
 
 @app.post("/ha/status")
 async def ha_status(req: CommandRequest | None = None) -> dict[str, Any]:
@@ -157,6 +164,7 @@ def _validate_modern_headers(message: dict[str, Any], headers: dict[str, str]) -
 async def _dispatch_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
     if name in {"ha_control_read", "ha_control_write", "ha_control_browse", "ha_control_sync"}: return await dispatch_control(name, args, transport)
     if name == "ha_bridge_status": return await bridge_status()
+    if name == "ha_repository_audit": return await repository_audit()
     if name == "ha_capabilities": return await capabilities()
     if name == "ha_status": return await ha_status(CommandRequest(command="ha info"))
     if name == "ha_read_file":
