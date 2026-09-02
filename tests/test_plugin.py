@@ -9,7 +9,7 @@ from pathlib import Path
 def test_package_metadata_and_entrypoint_exist() -> None:
     text = Path("pyproject.toml").read_text(encoding="utf-8")
     assert 'name = "file-bridge-mcp"' in text
-    assert 'version = "0.9.4"' in text
+    assert 'version = "0.9.5"' in text
     assert 'file-bridge-mcp = "server.stdio:main"' in text
 
 
