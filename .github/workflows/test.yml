@@ -7,13 +7,19 @@ on:
   pull_request:
 
 jobs:
-  test:
+  test-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11', '3.12', '3.13']
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python }}
       - name: Install plugin
         run: python -m pip install -e '.[test]'
       - name: Compile
@@ -24,3 +30,25 @@ jobs:
           printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | file-bridge-mcp
       - name: Test suite
         run: pytest -q
+
+  release-gate:
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install plugin
+        run: python -m pip install -e '.[test]'
+      - name: HTTP import smoke
+        run: python -c 'from server.main import app; assert app.version == "0.9.8-dev"'
+      - name: MCP tool count
+        run: python -c 'from server.mcp_server import tool_list; assert len(tool_list()["tools"]) == 18'
+      - name: Repository audit module smoke
+        run: python -c 'from server.repository_audit import audit_repository; r=audit_repository("."); assert isinstance(r.tracked_files, tuple)'
+      - name: Protected artifact scan
+        run: |
+          ! git ls-files | grep -E '(^|/)(\.storage|\.cloud|\.ssh|\.cache|backups|tts|media)(/|$)|\.(db|sqlite|sqlite3|log|pem|key|p12|pfx)$|(^|/)secrets\.ya?ml$'
