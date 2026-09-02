@@ -29,7 +29,7 @@ except ImportError:
     from status_store import StatusStore
     from repository_audit import audit_repository
 
-APP_VERSION = "0.9.7-dev"
+APP_VERSION = "0.9.8-dev"
 DEFAULT_TIMEOUT = 180
 config = BridgeConfig.from_env()
 transport = GitHubTransport()
@@ -39,7 +39,7 @@ transport.retries = config.github_retries
 transport.poll_seconds = config.poll_seconds
 workspace = LocalWorkspace(__import__("os").environ.get("HA_LOCAL_WORKSPACE", "/tmp/ha-grok-bridge-0.5.0-workspace"), backup_retention=config.backup_retention)
 status_store = StatusStore(__import__("os").environ.get("HA_STATUS_FILE", "/tmp/ha-grok-bridge-status.json"))
-app = FastAPI(title="HA Grok Bridge 0.9.7", version=APP_VERSION)
+app = FastAPI(title="HA Grok Bridge 0.9.8", version=APP_VERSION)
 
 class CommandRequest(BaseModel):
     command: str = Field(min_length=1, max_length=1000)
@@ -54,12 +54,12 @@ class VerifyRequest(BaseModel):
     command_id: str = Field(min_length=1, max_length=100)
 
 def new_id() -> str:
-    return f"ha-097-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
+    return f"ha-098-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
 
 async def execute(command: str, allow_mutation: bool, timeout: int) -> dict[str, Any]:
     command = command.strip()
     if not command_allowed(command):
-        raise HTTPException(403, "command is not allowed by the 0.9.7 server policy")
+        raise HTTPException(403, "command is not allowed by the 0.9.8 server policy")
     if command_is_mutating(command) and not allow_mutation:
         raise HTTPException(409, "mutation requires explicit allow_mutation=true")
     command_id = new_id()
