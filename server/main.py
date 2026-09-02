@@ -23,11 +23,11 @@ except ImportError:
     from local_workspace import LocalWorkspace
     from control_mcp import dispatch_control
 
-APP_VERSION = "0.7.0-dev"
+APP_VERSION = "0.9.0-dev"
 DEFAULT_TIMEOUT = 180
 transport = GitHubTransport()
 workspace = LocalWorkspace(__import__("os").environ.get("HA_LOCAL_WORKSPACE", "/tmp/ha-grok-bridge-0.5.0-workspace"))
-app = FastAPI(title="HA Grok Bridge 0.7.0", version=APP_VERSION)
+app = FastAPI(title="HA Grok Bridge 0.9.0", version=APP_VERSION)
 
 class CommandRequest(BaseModel):
     command: str = Field(min_length=1, max_length=1000)
@@ -42,12 +42,12 @@ class VerifyRequest(BaseModel):
     command_id: str = Field(min_length=1, max_length=100)
 
 def new_id() -> str:
-    return f"ha-070-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
+    return f"ha-090-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
 
 async def execute(command: str, allow_mutation: bool, timeout: int) -> dict[str, Any]:
     command = command.strip()
     if not command_allowed(command):
-        raise HTTPException(403, "command is not allowed by the 0.7.0 server policy")
+        raise HTTPException(403, "command is not allowed by the 0.9.0 server policy")
     if command_is_mutating(command) and not allow_mutation:
         raise HTTPException(409, "mutation requires explicit allow_mutation=true")
     command_id = new_id()
@@ -60,7 +60,7 @@ async def health() -> dict[str, Any]:
 
 @app.get("/capabilities")
 async def capabilities() -> dict[str, Any]:
-    return {"version": APP_VERSION, "mode": "read-only-default", "transport": "github-command-result", "tools": tool_list()["tools"], "mutations": "explicit-confirmation-required"}
+    return {"version": APP_VERSION, "mode": "read-only-default", "transport": "github-command-result", "tools": tool_list()["tools"], "mutations": "explicit-confirmation-required", "backup_restore": True}
 
 @app.post("/ha/status")
 async def ha_status(req: CommandRequest | None = None) -> dict[str, Any]:
@@ -102,9 +102,14 @@ async def local_analyze(path: str) -> dict[str, Any]: return {"analysis": worksp
 async def require_confirm(confirm: bool) -> None:
     if not confirm: raise HTTPException(409, "mutation requires explicit confirm=true")
 async def local_write(path: str, content: str, expected_sha256: str | None, confirm: bool) -> dict[str, Any]:
-    await require_confirm(confirm); return workspace.write(path, content, expected_sha256)
+    await require_confirm(confirm)
+    if workspace.path(path).exists():
+        workspace.backup(path)
+    return workspace.write(path, content, expected_sha256)
 async def local_patch(path: str, old: str, new: str, expected_sha256: str | None, count: int, confirm: bool) -> dict[str, Any]:
-    await require_confirm(confirm); return workspace.patch(path, old, new, expected_sha256, count)
+    await require_confirm(confirm)
+    workspace.backup(path)
+    return workspace.patch(path, old, new, expected_sha256, count)
 async def local_backup(path: str, confirm: bool) -> dict[str, Any]:
     await require_confirm(confirm); return workspace.backup(path)
 async def local_rollback(backup_id: str, confirm: bool) -> dict[str, Any]:

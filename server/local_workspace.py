@@ -3,8 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,17 +11,20 @@ from fastapi import HTTPException
 try:
     from .security import safe_config_path, validate_text_content
     from .secret_scanner import assert_safe
+    from .backup_manager import BackupManager
 except ImportError:
     from security import safe_config_path, validate_text_content
     from secret_scanner import assert_safe
+    from backup_manager import BackupManager
 
 
 class LocalWorkspace:
     """Local-only /config simulator used for development and E2E tests."""
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, backup_retention: int = 10):
         self.root = Path(root).resolve()
         self.backups = self.root / ".ai-backups"
         self.backups.mkdir(parents=True, exist_ok=True)
+        self.backup_manager = BackupManager(self.root, self.backups, retention=backup_retention)
 
     def path(self, rel: str) -> Path:
         safe = safe_config_path(rel)
@@ -146,34 +147,18 @@ class LocalWorkspace:
         return self.write(rel, updated, expected_sha256=current["sha256"])
 
     def backup(self, rel: str = ".") -> dict[str, Any]:
-        files = self.list(rel)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        snap = self.backups / stamp
-        suffix = 0
-        while snap.exists():
-            suffix += 1
-            snap = self.backups / f"{stamp}-{suffix:02d}"
-        snap.mkdir(parents=True)
-        for f in files:
-            src = self.path(f)
-            dst = snap / f
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-        return {"backup_id": snap.name, "files": files, "path": str(snap)}
+        files = {f: str(self.path(f)) for f in self.list(rel)}
+        try:
+            snapshot = self.backup_manager.create(files)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(500, str(exc))
+        return {"backup_id": snapshot.backup_id, "files": sorted(snapshot.files), "path": str(self.backups / snapshot.backup_id), "manifest_sha256": snapshot.manifest_sha256}
 
     def rollback(self, backup_id: str) -> dict[str, Any]:
-        if not re.fullmatch(r"\d{8}T\d{6}Z(?:-\d{2})?", backup_id):
-            raise HTTPException(400, "invalid backup_id")
-        snap = self.backups / backup_id
-        if not snap.is_dir():
+        try:
+            snapshot = self.backup_manager.restore(backup_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        except FileNotFoundError:
             raise HTTPException(404, f"backup not found: {backup_id}")
-        restored = []
-        for src in snap.rglob("*"):
-            if not src.is_file():
-                continue
-            rel = src.relative_to(snap)
-            dst = self.path(str(rel))
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-            restored.append(str(rel))
-        return {"backup_id": backup_id, "restored": sorted(restored)}
+        return {"backup_id": snapshot.backup_id, "restored": sorted(snapshot.files), "verified": True, "manifest_sha256": snapshot.manifest_sha256}
