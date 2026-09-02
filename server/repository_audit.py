@@ -3,10 +3,13 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
-from .secret_audit import audit_files
-from .secret_scanner import SECRET_FILE_NAMES, SECRET_SUFFIXES
+try:
+    from .secret_audit import audit_files
+    from .secret_scanner import SECRET_FILE_NAMES, SECRET_SUFFIXES
+except ImportError:
+    from secret_audit import audit_files
+    from secret_scanner import SECRET_FILE_NAMES, SECRET_SUFFIXES
 
 
 @dataclass(frozen=True)
