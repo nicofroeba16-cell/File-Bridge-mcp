@@ -19,7 +19,7 @@ def test_discover_modern():
 def test_tools_list_modern():
     r = client.post('/mcp', headers={'MCP-Protocol-Version':MCP_MODERN,'Mcp-Method':'tools/list'}, json={'jsonrpc':'2.0','id':2,'method':'tools/list'})
     data=r.json()['result']['tools']
-    assert len(data) == 17
+    assert len(data) == 18
     for t in data:
         assert t['inputSchema']['additionalProperties'] is False
         assert 'outputSchema' in t
