@@ -10,15 +10,17 @@ def test_allowlist():
     assert not command_allowed('ha info && whoami')
     assert not command_allowed('ha info; whoami')
 
+
 def test_mutation_gate():
     assert command_is_mutating('ha core restart')
     assert command_is_mutating('bash /config/deploy.sh')
     assert not command_is_mutating('ha core info')
 
+
 def test_paths():
     assert safe_config_path('configuration.yaml') == 'configuration.yaml'
     assert safe_config_path('/config/packages/test.yaml') == 'packages/test.yaml'
-    for bad in ('../x', 'a/../x', '/config/.storage/x', 'secrets.yaml', 'x.db'):
+    for bad in ('../x', 'a/../x', '/config/.storage/x', 'secrets.yaml', 'x.db', 'home.db-wal', 'home.db-shm', 'home.sqlite-wal', 'home.sqlite-shm'):
         try:
             safe_config_path(bad)
             assert False, bad
