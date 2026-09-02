@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 
@@ -118,19 +119,21 @@ class FakeResponse:
             raise RuntimeError(self.status_code)
 
 
-@pytest.mark.asyncio
-async def test_github_atomic_commit_uses_one_tree_and_one_commit():
-    transport = FakeGitHubTransport()
-    result = await transport.atomic_commit(
-        [DeploymentFile("a.yaml", "a\n"), DeploymentFile("gone.yaml", None)],
-        message="atomic deployment",
-        expected_parent="parent-sha",
-    )
-    assert result["verified"] is True
-    assert result["commit_sha"] == "new-commit"
-    tree_payload = next(payload for method, url, payload in transport.calls if url.endswith("/git/trees"))
-    assert tree_payload["base_tree"] == "base-tree"
-    assert len(tree_payload["tree"]) == 2
-    assert any(item["sha"] is None for item in tree_payload["tree"])
-    assert sum(url.endswith("/git/commits") for _, url, _ in transport.calls) == 1
-    assert sum(url.endswith("/git/refs/heads/main") for _, url, _ in transport.calls) == 1
+def test_github_atomic_commit_uses_one_tree_and_one_commit():
+    async def run():
+        transport = FakeGitHubTransport()
+        result = await transport.atomic_commit(
+            [DeploymentFile("a.yaml", "a\n"), DeploymentFile("gone.yaml", None)],
+            message="atomic deployment",
+            expected_parent="parent-sha",
+        )
+        assert result["verified"] is True
+        assert result["commit_sha"] == "new-commit"
+        tree_payload = next(payload for method, url, payload in transport.calls if url.endswith("/git/trees"))
+        assert tree_payload["base_tree"] == "base-tree"
+        assert len(tree_payload["tree"]) == 2
+        assert any(item["sha"] is None for item in tree_payload["tree"])
+        assert sum(url.endswith("/git/commits") for _, url, _ in transport.calls) == 1
+        assert sum(url.endswith("/git/refs/heads/main") for _, url, _ in transport.calls) == 1
+
+    asyncio.run(run())
