@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0
+
+Final 1.0 release.
+
+- Production local and GitHub sync adapters with SHA-256 content inventory.
+- Explicit first-sync direction: `ha-to-github` or `github-to-ha`; no implicit destructive choice.
+- Protected runtime/secret paths excluded from remote inventory and mutation.
+- GitHub sync mutations use verified atomic commits.
+- Full Python 3.10–3.13 matrix, MCP/HTTP smoke checks, repository audit and protected-artifact release gate.
+- All reliability, backup/restore, dry-run, conflict, status/health, configuration and repository-audit stages consolidated for 1.0.
+
 ## 0.9.9 RC
 
 Release-candidate consolidation for the 1.0 line.
