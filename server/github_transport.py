@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import os
+import json
 from typing import Any
 
 import httpx
 from fastapi import HTTPException
 
 try:
-    from .protocol import BridgeCommand, BridgeResult, encode_content, parse_result
+    from .protocol import BridgeCommand, BridgeResult, encode_content, parse_result, decode_content
 except ImportError:
-    from protocol import BridgeCommand, BridgeResult, encode_content, parse_result
+    from protocol import BridgeCommand, BridgeResult, encode_content, parse_result, decode_content
 
 
 class GitHubTransport:
@@ -22,6 +23,7 @@ class GitHubTransport:
         self.poll_seconds = float(os.environ.get("BRIDGE_POLL_SECONDS", "3"))
         self.retries = int(os.environ.get("GITHUB_RETRIES", "3"))
         self.last_command_commit_sha: str | None = None
+        self.last_control_commit_sha: str | None = None
 
     def headers(self) -> dict[str, str]:
         if not self.token:
@@ -68,7 +70,7 @@ class GitHubTransport:
             body["sha"] = current["sha"]
         r = await self._request("PUT", self.url(path), json=body)
         if r.status_code == 409:
-            raise HTTPException(409, "GitHub command.json changed concurrently; retry the operation")
+            raise HTTPException(409, "GitHub control file changed concurrently; retry the operation")
         r.raise_for_status()
         return r.json()
 
@@ -82,6 +84,36 @@ class GitHubTransport:
         if current_sha != self.last_command_commit_sha:
             raise HTTPException(502, "GitHub branch SHA does not match command commit SHA")
         return response
+
+    async def send_control_command(self, payload: dict[str, Any]) -> dict[str, Any]:
+        cid = str(payload.get("id", ""))
+        if not cid:
+            raise HTTPException(400, "control command id is required")
+        response = await self.put_file(f".ai-control/commands/{cid}.json", json.dumps(payload, ensure_ascii=False, indent=2) + "\n", f"control command {cid}")
+        commit_sha = response.get("commit", {}).get("sha")
+        if not commit_sha:
+            raise HTTPException(502, "GitHub did not return the control commit SHA")
+        self.last_control_commit_sha = str(commit_sha)
+        return response
+
+    async def wait_control_result(self, command_id: str, timeout: int) -> dict[str, Any]:
+        deadline = asyncio.get_running_loop().time() + timeout
+        path = f".ai-control/results/{command_id}.json"
+        while asyncio.get_running_loop().time() < deadline:
+            data = await self.read_file(path)
+            if data and data.get("content"):
+                try:
+                    result = json.loads(decode_content(data["content"]))
+                except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                    result = None
+                if isinstance(result, dict) and result.get("id") == command_id:
+                    return result
+            await asyncio.sleep(self.poll_seconds)
+        raise HTTPException(504, f"control result timeout for command {command_id}")
+
+    async def execute_control(self, payload: dict[str, Any], timeout: int) -> dict[str, Any]:
+        await self.send_control_command(payload)
+        return await self.wait_control_result(str(payload["id"]), timeout)
 
     async def wait_result(self, command_id: str, timeout: int) -> BridgeResult:
         deadline = asyncio.get_running_loop().time() + timeout
