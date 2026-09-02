@@ -18,7 +18,7 @@ except ImportError:
 @dataclass(frozen=True)
 class DeploymentFile:
     path: str
-    content: str
+    content: str | None
     expected_sha256: str | None = None
 
 
@@ -47,8 +47,9 @@ def validate_deployment(files: Iterable[DeploymentFile]) -> tuple[DeploymentFile
         if path in seen:
             raise ValueError(f"duplicate deployment path: {path}")
         seen.add(path)
-        validate_text_content(item.content)
-        assert_safe(path, item.content)
+        if item.content is not None:
+            validate_text_content(item.content)
+            assert_safe(path, item.content)
         if item.expected_sha256 is not None and len(item.expected_sha256) != 64:
             raise ValueError(f"invalid expected sha256: {path}")
         normalized.append(DeploymentFile(path, item.content, item.expected_sha256))
@@ -78,26 +79,35 @@ class AtomicWorkspaceDeployer:
                         raise ValueError(f"path escapes workspace: {item.path}")
                     if target.exists() and not target.is_file():
                         raise ValueError(f"deployment target is not a regular file: {item.path}")
+                    snapshots[target] = target.read_bytes() if target.exists() else None
                     if item.expected_sha256 is not None:
                         actual = _sha256(target.read_text(encoding="utf-8")) if target.exists() else None
                         if actual != item.expected_sha256:
                             raise ValueError(f"sha256 conflict: {item.path}")
-                    snapshots[target] = target.read_bytes() if target.exists() else None
-                    staged_path = stage_root / item.path
-                    staged_path.parent.mkdir(parents=True, exist_ok=True)
-                    staged_path.write_text(item.content, encoding="utf-8")
-                    with staged_path.open("rb") as fh:
-                        os.fsync(fh.fileno())
-                    staged.append((target, staged_path))
+                    if item.content is not None:
+                        staged_path = stage_root / item.path
+                        staged_path.parent.mkdir(parents=True, exist_ok=True)
+                        staged_path.write_text(item.content, encoding="utf-8")
+                        with staged_path.open("rb") as fh:
+                            os.fsync(fh.fileno())
+                        staged.append((target, staged_path))
+                    else:
+                        staged.append((target, Path()))
 
                 for target, staged_path in staged:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    os.replace(staged_path, target)
+                    if staged_path:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(staged_path, target)
+                    else:
+                        target.unlink(missing_ok=True)
                     applied.append(str(target.relative_to(self.root)))
 
                 for item in items:
                     target = self.root / item.path
-                    if not target.is_file() or _sha256(target.read_text(encoding="utf-8")) != _sha256(item.content):
+                    if item.content is None:
+                        if target.exists():
+                            raise IOError(f"post-deployment verification failed: {item.path}")
+                    elif not target.is_file() or _sha256(target.read_text(encoding="utf-8")) != _sha256(item.content):
                         raise IOError(f"post-deployment verification failed: {item.path}")
         except Exception:
             for target, original in snapshots.items():
