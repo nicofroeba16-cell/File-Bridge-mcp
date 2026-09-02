@@ -14,9 +14,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install dependencies
-        run: python -m pip install -r server/requirements.txt pytest
+      - name: Install plugin
+        run: python -m pip install -e '.[test]'
       - name: Compile
         run: python -m compileall -q server tests
+      - name: Plugin smoke test
+        run: |
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | file-bridge-mcp
+          printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | file-bridge-mcp
       - name: Test suite
         run: pytest -q
