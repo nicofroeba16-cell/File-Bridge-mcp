@@ -44,9 +44,11 @@ jobs:
       - name: Install plugin
         run: python -m pip install -e '.[test]'
       - name: HTTP import smoke
-        run: python -c 'from server.main import app; assert app.version == "0.9.9-dev"'
+        run: python -c 'from server.main import app; assert app.version == "1.0.0"'
       - name: MCP tool count
         run: python -c 'from server.mcp_server import tool_list; assert len(tool_list()["tools"]) == 18'
+      - name: Production sync adapter smoke
+        run: python -c 'from server.sync_adapters import GitHubSyncAdapter, LocalWorkspaceSyncAdapter; from server.sync_engine import plan_initial_sync; assert callable(plan_initial_sync)'
       - name: Repository audit module smoke
         run: python -c 'from server.repository_audit import audit_repository; r=audit_repository("."); assert isinstance(r.tracked_files, tuple)'
       - name: Protected artifact scan
