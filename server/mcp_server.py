@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Any
 
 _READONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
 _DESTRUCTIVE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False}
@@ -28,7 +27,11 @@ TOOLS=[
  _tool("ha_backup","Create a local snapshot before mutation. Explicit confirmation required.",{"path":{"type":"string","default":"."},"confirm":{"type":"boolean","default":False}},["confirm"],{"backup_id":{"type":"string"}},_DESTRUCTIVE),
  _tool("ha_rollback","Restore a previous local snapshot. Explicit confirmation required.",{"backup_id":{"type":"string"},"confirm":{"type":"boolean","default":False}},["backup_id","confirm"],{"backup_id":{"type":"string"},"restored":{"type":"array"}},_DESTRUCTIVE),
  _tool("ha_run_allowed_command","Run a command permitted by the bridge allowlist. Mutations require confirmation.",{"command":{"type":"string"},"allow_mutation":{"type":"boolean","default":False},"timeout":{"type":"integer","minimum":5,"maximum":600,"default":180}},["command"],COMMON_OUTPUT,_DESTRUCTIVE),
- _tool("ha_verify","Verify a bridge result by command ID.",{"command_id":{"type":"string"}},["command_id"],{"verified":{"type":"boolean"},"command_id":{"type":"string"}}),
+ _tool("ha_verify","Verify a bridge result by command ID.",{"command_id":{"type":"string"}},["command_id"],{"verified":{"type":"boolean"}}),
+ _tool("ha_control_read","Read a real HA project file through .ai-control.",{"path":{"type":"string","minLength":1},"command_id":{"type":"string","minLength":1}},["path","command_id"],{"result":{"type":"object"}}),
+ _tool("ha_control_write","Write a real HA project file through .ai-control. Explicit confirmation required.",{"path":{"type":"string","minLength":1},"content":{"type":"string"},"command_id":{"type":"string","minLength":1},"confirm":{"type":"boolean","default":False}},["path","content","command_id","confirm"],{"result":{"type":"object"}},_DESTRUCTIVE),
+ _tool("ha_control_browse","Browse a real HA project directory through .ai-control.",{"path":{"type":"string","default":"."},"command_id":{"type":"string","minLength":1}},["command_id"],{"result":{"type":"object"}}),
+ _tool("ha_control_sync","Request a real HA synchronization through .ai-control. Explicit confirmation required.",{"command_id":{"type":"string","minLength":1},"confirm":{"type":"boolean","default":False}},["command_id","confirm"],{"result":{"type":"object"}},_DESTRUCTIVE),
 ]
 
 def tool_list(): return {"tools":TOOLS}
