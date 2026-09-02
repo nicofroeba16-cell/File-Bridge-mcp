@@ -21,11 +21,11 @@ except ImportError:
     from security import command_allowed, command_is_mutating, safe_config_path
     from local_workspace import LocalWorkspace
 
-APP_VERSION = "0.5.0-local"
+APP_VERSION = "0.5.1-local"
 DEFAULT_TIMEOUT = 180
 transport = GitHubTransport()
 workspace = LocalWorkspace(__import__("os").environ.get("HA_LOCAL_WORKSPACE", "/tmp/ha-grok-bridge-0.5.0-workspace"))
-app = FastAPI(title="HA Grok Bridge 0.5.0", version=APP_VERSION)
+app = FastAPI(title="HA Grok Bridge 0.5.1", version=APP_VERSION)
 
 
 class CommandRequest(BaseModel):
@@ -44,13 +44,13 @@ class VerifyRequest(BaseModel):
 
 
 def new_id() -> str:
-    return f"ha-050-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
+    return f"ha-051-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
 
 
 async def execute(command: str, allow_mutation: bool, timeout: int) -> dict[str, Any]:
     command = command.strip()
     if not command_allowed(command):
-        raise HTTPException(403, "command is not allowed by the 0.5.0 server policy")
+        raise HTTPException(403, "command is not allowed by the 0.5.1 server policy")
     if command_is_mutating(command) and not allow_mutation:
         raise HTTPException(409, "mutation requires explicit allow_mutation=true")
     command_id = new_id()
@@ -94,8 +94,6 @@ async def ha_status(req: CommandRequest | None = None) -> dict[str, Any]:
 @app.post("/ha/read")
 async def ha_read(req: FileRequest) -> dict[str, Any]:
     path = safe_config_path(req.path)
-    # The existing 0.3.x bridge permits git -C /config. HEAD:path reads a
-    # tracked project file without exposing a direct /config mount here.
     command = f"git -C /config show HEAD:{path}"
     return await execute(command, False, req.timeout)
 
@@ -159,8 +157,6 @@ async def local_rollback(backup_id: str, confirm: bool) -> dict[str, Any]:
     await require_confirm(confirm)
     return workspace.rollback(backup_id)
 
-# MCP JSON-RPC adapter. Supports the current stateless 2026-07-28 request
-# envelope and a legacy initialize exchange for older MCP clients.
 MCP_MODERN = "2026-07-28"
 MCP_LEGACY = "2025-06-18"
 
