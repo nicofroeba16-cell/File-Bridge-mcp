@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,6 +62,7 @@ class AtomicWorkspaceDeployer:
 
     def __init__(self, root: str | Path):
         self.root = Path(root).resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
 
     def apply(self, files: Iterable[DeploymentFile]) -> DeploymentResult:
         items = validate_deployment(files)
@@ -106,9 +106,9 @@ class AtomicWorkspaceDeployer:
                         target.unlink(missing_ok=True)
                     else:
                         target.parent.mkdir(parents=True, exist_ok=True)
-                        rollback_tmp = target.with_name(target.name + ".rollback")
-                        rollback_tmp.write_bytes(original)
-                        os.replace(rollback_tmp, target)
+                        target.write_bytes(original)
+                        with target.open("rb") as fh:
+                            os.fsync(fh.fileno())
                 except OSError:
                     pass
             raise
