@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 try:
+    from .config import BridgeConfig
     from .github_transport import GitHubTransport
     from .mcp_server import tool_list
     from .protocol import BridgeCommand
@@ -17,6 +18,7 @@ try:
     from .control_mcp import dispatch_control
     from .status_store import StatusStore
 except ImportError:
+    from config import BridgeConfig
     from github_transport import GitHubTransport
     from mcp_server import tool_list
     from protocol import BridgeCommand
@@ -25,12 +27,17 @@ except ImportError:
     from control_mcp import dispatch_control
     from status_store import StatusStore
 
-APP_VERSION = "0.9.5-dev"
+APP_VERSION = "0.9.6-dev"
 DEFAULT_TIMEOUT = 180
+config = BridgeConfig.from_env()
 transport = GitHubTransport()
-workspace = LocalWorkspace(__import__("os").environ.get("HA_LOCAL_WORKSPACE", "/tmp/ha-grok-bridge-0.5.0-workspace"))
+transport.repo = config.repository
+transport.branch = config.branch
+transport.retries = config.github_retries
+transport.poll_seconds = config.poll_seconds
+workspace = LocalWorkspace(__import__("os").environ.get("HA_LOCAL_WORKSPACE", "/tmp/ha-grok-bridge-0.5.0-workspace"), backup_retention=config.backup_retention)
 status_store = StatusStore(__import__("os").environ.get("HA_STATUS_FILE", "/tmp/ha-grok-bridge-status.json"))
-app = FastAPI(title="HA Grok Bridge 0.9.5", version=APP_VERSION)
+app = FastAPI(title="HA Grok Bridge 0.9.6", version=APP_VERSION)
 
 class CommandRequest(BaseModel):
     command: str = Field(min_length=1, max_length=1000)
@@ -45,12 +52,12 @@ class VerifyRequest(BaseModel):
     command_id: str = Field(min_length=1, max_length=100)
 
 def new_id() -> str:
-    return f"ha-095-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
+    return f"ha-096-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
 
 async def execute(command: str, allow_mutation: bool, timeout: int) -> dict[str, Any]:
     command = command.strip()
     if not command_allowed(command):
-        raise HTTPException(403, "command is not allowed by the 0.9.5 server policy")
+        raise HTTPException(403, "command is not allowed by the 0.9.6 server policy")
     if command_is_mutating(command) and not allow_mutation:
         raise HTTPException(409, "mutation requires explicit allow_mutation=true")
     command_id = new_id()
@@ -78,7 +85,7 @@ async def bridge_status() -> dict[str, Any]:
 
 @app.get("/capabilities")
 async def capabilities() -> dict[str, Any]:
-    return {"version": APP_VERSION, "mode": "read-only-default", "transport": "github-command-result", "tools": tool_list()["tools"], "mutations": "explicit-confirmation-required", "backup_restore": True, "dry_run": True, "secret_audit": True, "reliability": True, "atomic_deployment": True, "status_health": True}
+    return {"version": APP_VERSION, "mode": "read-only-default", "transport": "github-command-result", "tools": tool_list()["tools"], "mutations": "explicit-confirmation-required", "backup_restore": True, "dry_run": True, "secret_audit": True, "reliability": True, "atomic_deployment": True, "status_health": True, "configuration": True}
 
 @app.post("/ha/status")
 async def ha_status(req: CommandRequest | None = None) -> dict[str, Any]:
