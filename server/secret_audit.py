@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Mapping
 
-from .secret_scanner import SecretFinding, scan_text
+try:
+    from .secret_scanner import SecretFinding, scan_text
+except ImportError:
+    from secret_scanner import SecretFinding, scan_text
 
 
 @dataclass(frozen=True)
@@ -28,14 +31,7 @@ def audit_files(files: Mapping[str, str], *, ignored_paths: Iterable[str] = ()) 
 
 def safe_audit_report(result: AuditResult) -> dict[str, object]:
     """Return only metadata; secret values are never included in reports/logs."""
-    return {
-        "clean": result.clean,
-        "finding_count": len(result.findings),
-        "findings": [
-            {"kind": f.kind, "path": f.path, "line": f.line}
-            for f in result.findings
-        ],
-    }
+    return {"clean": result.clean, "finding_count": len(result.findings), "findings": [{"kind": f.kind, "path": f.path, "line": f.line} for f in result.findings]}
 
 
 def assert_repository_clean(files: Mapping[str, str]) -> None:
