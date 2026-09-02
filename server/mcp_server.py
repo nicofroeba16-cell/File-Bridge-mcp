@@ -12,6 +12,7 @@ def output_schema(fields):
 COMMON_OUTPUT={"command_id":{"type":"string"},"verified":{"type":"boolean"},"result":{"type":"object"}}
 TEXT_OUTPUT={"path":{"type":"string"},"content":{"type":"string"},"sha256":{"type":"string"}}
 STATUS_OUTPUT={"version":{"type":"string"},"state":{"type":"string"},"last_success":{"type":["string","null"]},"last_failure":{"type":["string","null"]},"conflict_count":{"type":"integer"},"lock_held":{"type":"boolean"},"message":{"type":["string","null"]},"updated_at":{"type":"string"}}
+AUDIT_OUTPUT={"clean":{"type":"boolean"},"tracked_files":{"type":"array"},"protected_tracked":{"type":"array"},"secret_findings":{"type":"array"},"history_protected":{"type":"array"}}
 
 def _tool(name, description, props=None, req=None, out=None, annotations=_READONLY):
     return {"name":name,"description":description,"inputSchema":obj_schema(props,req),"outputSchema":output_schema(out or {"ok":{"type":"boolean"}}),"annotations":annotations}
@@ -20,6 +21,7 @@ TOOLS=[
  _tool("ha_capabilities","Describe Bridge capabilities and safety mode.",out={"version":{"type":"string"},"mode":{"type":"string"},"transport":{"type":"string"},"tools":{"type":"array"},"mutations":{"type":"string"}}),
  _tool("ha_status","Query Home Assistant status through the bridge. Read-only.",out=COMMON_OUTPUT),
  _tool("ha_bridge_status","Read persistent bridge sync/health state.",out=STATUS_OUTPUT),
+ _tool("ha_repository_audit","Audit tracked repository files, protected artifacts, secrets and protected history without exposing secret values.",out=AUDIT_OUTPUT),
  _tool("ha_read_file","Read a permitted project file.",{"path":{"type":"string","minLength":1,"maxLength":500}},["path"],TEXT_OUTPUT),
  _tool("ha_list_files","List permitted project files.",{"path":{"type":"string","default":"."}},out={"files":{"type":"array"}}),
  _tool("ha_search","Search permitted project files for text or regex.",{"query":{"type":"string","minLength":1},"path":{"type":"string","default":"."},"regex":{"type":"boolean","default":False},"max_results":{"type":"integer","minimum":1,"maximum":1000,"default":100}},["query"],{"matches":{"type":"array"}}),
