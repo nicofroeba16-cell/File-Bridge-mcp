@@ -50,8 +50,8 @@ def audit_repository(root: str | Path) -> RepositoryAudit:
             contents[path] = file_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-    findings = audit_files(contents)
+    audit = audit_files(contents)
     history_objects = _git(repo, "rev-list", "--objects", "--all").splitlines()
     history_paths = tuple(sorted({line.split(" ", 1)[1] for line in history_objects if " " in line and _is_protected(line.split(" ", 1)[1])}))
-    report = tuple({"kind": f.kind, "path": f.path, "line": f.line} for f in findings)
+    report = tuple({"kind": f.kind, "path": f.path, "line": f.line} for f in audit.findings)
     return RepositoryAudit(tracked, protected, report, history_paths)
