@@ -27,7 +27,15 @@ def test_new_and_deleted_files():
     by_path = {x.path: x.action for x in plan}
     assert by_path["new-local"] == "push"
     assert by_path["new-remote"] == "pull"
-    assert by_path["deleted-local"] == "delete_local"
+    assert by_path["deleted-local"] == "delete_remote"
+
+
+def test_remote_deletion_is_delete_local_when_local_matches_baseline():
+    local = {"deleted-remote": state("deleted-remote", "gone")}
+    remote = {}
+    plan = plan_sync(local, remote, {"deleted-remote": sha256_text("gone")})
+    by_path = {x.path: x.action for x in plan}
+    assert by_path["deleted-remote"] == "delete_local"
 
 
 def test_initial_sync_same_file_is_noop_and_dual_new_is_conflict():
