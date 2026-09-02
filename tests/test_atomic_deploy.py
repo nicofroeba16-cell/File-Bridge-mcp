@@ -5,6 +5,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 from server.atomic_deploy import AtomicWorkspaceDeployer, DeploymentFile, validate_deployment
 from server.github_transport import GitHubTransport
@@ -15,7 +16,7 @@ def sha(text: str) -> str:
 
 
 def test_validate_all_files_before_staging(tmp_path: Path):
-    with pytest.raises(ValueError, match="secret"):
+    with pytest.raises(HTTPException, match="protected runtime/secret file"):
         validate_deployment([
             DeploymentFile("ok.yaml", "ok: true\n"),
             DeploymentFile("secrets.yaml", "token: abc\n"),
