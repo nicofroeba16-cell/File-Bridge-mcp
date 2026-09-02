@@ -24,9 +24,8 @@ def test_both_changed_is_conflict():
 
 
 def test_new_and_deleted_files():
-    local = {"new-local": state("new-local", "x"), "deleted-local": None}
-    local = {k: v for k, v in local.items() if v is not None}
-    remote = {"new-remote": state("new-remote", "y")}
+    local = {"new-local": state("new-local", "x")}
+    remote = {"new-remote": state("new-remote", "y"), "deleted-local": state("deleted-local", "gone")}
     plan = plan_sync(local, remote, {"deleted-local": sha256_text("gone")})
     by_path = {x.path: x.action for x in plan}
     assert by_path["new-local"] == "push"
