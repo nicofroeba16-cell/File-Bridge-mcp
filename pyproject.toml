@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "file-bridge-mcp"
-version = "0.9.7"
+version = "0.9.8"
 description = "Testable MCP server for the Home Assistant File Bridge"
 requires-python = ">=3.10"
 dependencies = [
