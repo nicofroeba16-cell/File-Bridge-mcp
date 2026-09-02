@@ -3,10 +3,14 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from .control_plane import ControlCommand
-from .ha_workflow import HAWorkflow
-from .secret_scanner import assert_safe
-from .security import validate_text_content
+try:
+    from .ha_workflow import HAWorkflow
+    from .secret_scanner import assert_safe
+    from .security import validate_text_content
+except ImportError:
+    from ha_workflow import HAWorkflow
+    from secret_scanner import assert_safe
+    from security import validate_text_content
 
 async def dispatch_control(name: str, args: dict[str, Any], transport: Any) -> dict[str, Any]:
     workflow = HAWorkflow(transport)
@@ -17,9 +21,8 @@ async def dispatch_control(name: str, args: dict[str, Any], transport: Any) -> d
         if not args.get("confirm", False):
             raise HTTPException(409, "mutation requires explicit confirm=true")
         validate_text_content(args["content"])
-        safe_path = args["path"]
-        assert_safe(safe_path, args["content"])
-        return {"result": await workflow.write(cid, safe_path, args["content"])}
+        assert_safe(args["path"], args["content"])
+        return {"result": await workflow.write(cid, args["path"], args["content"])}
     if name == "ha_control_browse":
         return {"result": await workflow.browse(cid, args.get("path", "."))}
     if name == "ha_control_sync":
