@@ -37,7 +37,7 @@ MUTATING_PREFIXES = (
 PROTECTED_DIRS = (
     ".storage", ".cloud", ".ssh", ".cache", "backups", "tts", "media",
 )
-PROTECTED_SUFFIXES = (".db", ".sqlite", ".sqlite3", ".sqlite-wal", ".sqlite-shm", ".log", ".pem", ".key", ".p12", ".pfx")
+PROTECTED_SUFFIXES = (".db", ".db-wal", ".db-shm", ".sqlite", ".sqlite-wal", ".sqlite-shm", ".sqlite3", ".sqlite3-wal", ".sqlite3-shm", ".log", ".pem", ".key", ".p12", ".pfx")
 
 
 def normalize_command(command: str) -> str:
