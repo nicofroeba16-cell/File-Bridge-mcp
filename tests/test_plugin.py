@@ -26,7 +26,9 @@ def test_stdio_initialize_and_tools_list() -> None:
         timeout=30,
     )
     lines = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
-    assert lines[0]["result"]["serverInfo"]["version"] == "0.5.1-local"
+    assert lines[0]["result"]["serverInfo"]["version"] == "0.7.0-dev"
     names = {tool["name"] for tool in lines[1]["result"]["tools"]}
     assert {"ha_capabilities", "ha_read_file", "ha_write_file", "ha_patch_file"} <= names
+    assert {"ha_control_read", "ha_control_write", "ha_control_browse", "ha_control_sync"} <= names
+    assert len(names) == 16
     assert proc.stderr == ""
