@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import json
-from typing import Any
+import os
+from typing import Any, Iterable
 
 import httpx
 from fastapi import HTTPException
 
 try:
+    from .atomic_deploy import DeploymentFile, validate_deployment
     from .protocol import BridgeCommand, BridgeResult, encode_content, parse_result, decode_content
 except ImportError:
+    from atomic_deploy import DeploymentFile, validate_deployment
     from protocol import BridgeCommand, BridgeResult, encode_content, parse_result, decode_content
 
 
@@ -32,6 +34,9 @@ class GitHubTransport:
 
     def url(self, path: str) -> str:
         return f"https://api.github.com/repos/{self.repo}/contents/{path.lstrip('/')}"
+
+    def git_url(self, path: str) -> str:
+        return f"https://api.github.com/repos/{self.repo}/git/{path.lstrip('/')}"
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         last: Exception | None = None
@@ -73,6 +78,60 @@ class GitHubTransport:
             raise HTTPException(409, "GitHub control file changed concurrently; retry the operation")
         r.raise_for_status()
         return r.json()
+
+    async def atomic_commit(
+        self,
+        files: Iterable[DeploymentFile],
+        *,
+        message: str,
+        expected_parent: str | None = None,
+    ) -> dict[str, object]:
+        """Create one Git commit containing all additions/updates/deletions.
+
+        The branch is advanced only once, after the complete tree and commit have
+        been created. A stale expected parent is rejected before any ref update.
+        """
+        items = validate_deployment(files)
+        parent = await self.branch_sha()
+        if expected_parent is not None and parent != expected_parent:
+            raise HTTPException(409, "GitHub branch changed before atomic deployment")
+
+        commit_url = self.git_url(f"commits/{parent}")
+        commit_response = await self._request("GET", commit_url)
+        commit_response.raise_for_status()
+        base_tree = str(commit_response.json()["tree"]["sha"])
+
+        entries: list[dict[str, Any]] = []
+        for item in items:
+            if item.content is None:
+                entries.append({"path": item.path, "mode": "100644", "type": "blob", "sha": None})
+                continue
+            blob_response = await self._request(
+                "POST", self.git_url("blobs"), json={"content": encode_content(item.content), "encoding": "base64"}
+            )
+            if blob_response.status_code not in (200, 201):
+                blob_response.raise_for_status()
+            entries.append({"path": item.path, "mode": "100644", "type": "blob", "sha": blob_response.json()["sha"]})
+
+        tree_response = await self._request("POST", self.git_url("trees"), json={"base_tree": base_tree, "tree": entries})
+        tree_response.raise_for_status()
+        tree_sha = str(tree_response.json()["sha"])
+
+        new_commit = await self._request(
+            "POST", self.git_url("commits"), json={"message": message, "tree": tree_sha, "parents": [parent]}
+        )
+        new_commit.raise_for_status()
+        new_sha = str(new_commit.json()["sha"])
+
+        ref_url = f"https://api.github.com/repos/{self.repo}/git/refs/heads/{self.branch}"
+        ref_response = await self._request("PATCH", ref_url, json={"sha": new_sha, "force": False})
+        if ref_response.status_code == 422:
+            raise HTTPException(409, "GitHub branch changed during atomic deployment")
+        ref_response.raise_for_status()
+        verified = await self.branch_sha()
+        if verified != new_sha:
+            raise HTTPException(502, "atomic deployment ref verification failed")
+        return {"commit_sha": new_sha, "parent_sha": parent, "tree_sha": tree_sha, "files": [item.path for item in items], "verified": True}
 
     async def send_command(self, command: BridgeCommand) -> dict[str, Any]:
         response = await self.put_file("command.json", command.to_json(), f"bridge command {command.id}")
