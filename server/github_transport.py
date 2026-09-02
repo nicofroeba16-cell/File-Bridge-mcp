@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from typing import Any
 
@@ -21,46 +20,68 @@ class GitHubTransport:
         self.token = os.environ.get("GITHUB_TOKEN", "")
         self.timeout = int(os.environ.get("GITHUB_HTTP_TIMEOUT", "30"))
         self.poll_seconds = float(os.environ.get("BRIDGE_POLL_SECONDS", "3"))
+        self.retries = int(os.environ.get("GITHUB_RETRIES", "3"))
+        self.last_command_commit_sha: str | None = None
 
     def headers(self) -> dict[str, str]:
         if not self.token:
             raise HTTPException(503, "GITHUB_TOKEN is not configured")
-        return {
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
+        return {"Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
 
     def url(self, path: str) -> str:
         return f"https://api.github.com/repos/{self.repo}/contents/{path.lstrip('/')}"
 
+    async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        last: Exception | None = None
+        for attempt in range(self.retries):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.request(method, url, headers=self.headers(), **kwargs)
+                if response.status_code not in (408, 429) and response.status_code < 500:
+                    return response
+                last = HTTPException(502, f"GitHub temporary error: HTTP {response.status_code}")
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                last = exc
+            if attempt + 1 < self.retries:
+                await asyncio.sleep(0.5 * (2 ** attempt))
+        if isinstance(last, HTTPException):
+            raise last
+        raise HTTPException(503, f"GitHub unavailable after {self.retries} attempts") from last
+
     async def read_file(self, path: str) -> dict[str, Any] | None:
-        params = {"ref": self.branch}
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.get(self.url(path), headers=self.headers(), params=params)
+        r = await self._request("GET", self.url(path), params={"ref": self.branch})
         if r.status_code == 404:
             return None
         r.raise_for_status()
         return r.json()
 
+    async def branch_sha(self) -> str:
+        url = f"https://api.github.com/repos/{self.repo}/git/ref/heads/{self.branch}"
+        r = await self._request("GET", url)
+        r.raise_for_status()
+        return str(r.json()["object"]["sha"])
+
     async def put_file(self, path: str, text: str, message: str) -> dict[str, Any]:
         current = await self.read_file(path)
-        body: dict[str, Any] = {
-            "message": message,
-            "content": encode_content(text),
-            "branch": self.branch,
-        }
+        body: dict[str, Any] = {"message": message, "content": encode_content(text), "branch": self.branch}
         if current and current.get("sha"):
             body["sha"] = current["sha"]
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.put(self.url(path), headers=self.headers(), json=body)
+        r = await self._request("PUT", self.url(path), json=body)
         if r.status_code == 409:
             raise HTTPException(409, "GitHub command.json changed concurrently; retry the operation")
         r.raise_for_status()
         return r.json()
 
     async def send_command(self, command: BridgeCommand) -> dict[str, Any]:
-        return await self.put_file("command.json", command.to_json(), f"bridge command {command.id}")
+        response = await self.put_file("command.json", command.to_json(), f"bridge command {command.id}")
+        commit_sha = response.get("commit", {}).get("sha")
+        if not commit_sha:
+            raise HTTPException(502, "GitHub did not return the command commit SHA")
+        self.last_command_commit_sha = str(commit_sha)
+        current_sha = await self.branch_sha()
+        if current_sha != self.last_command_commit_sha:
+            raise HTTPException(502, "GitHub branch SHA does not match command commit SHA")
+        return response
 
     async def wait_result(self, command_id: str, timeout: int) -> BridgeResult:
         deadline = asyncio.get_running_loop().time() + timeout
