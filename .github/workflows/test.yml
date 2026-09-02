@@ -6,6 +6,9 @@ on:
     tags: ['v*']
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   test-matrix:
     strategy:
@@ -54,3 +57,15 @@ jobs:
       - name: Protected artifact scan
         run: |
           ! git ls-files | grep -E '(^|/)(\.storage|\.cloud|\.ssh|\.cache|backups|tts|media)(/|$)|\.(db|sqlite|sqlite3|log|pem|key|p12|pfx)$|(^|/)secrets\.ya?ml$'
+      - name: Tag and publish v1.0.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git ls-remote --exit-code --tags origin refs/tags/v1.0.0 >/dev/null 2>&1; then
+            git tag -a v1.0.0 -m "File-Bridge-mcp v1.0.0"
+            git push origin v1.0.0
+          fi
+          gh release view v1.0.0 >/dev/null 2>&1 || gh release create v1.0.0 --title "File-Bridge-mcp v1.0.0" --generate-notes
