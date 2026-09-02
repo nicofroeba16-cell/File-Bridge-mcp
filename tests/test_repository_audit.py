@@ -11,7 +11,7 @@ def git(root: Path, *args: str) -> None:
 
 
 def commit(root: Path, message: str) -> None:
-    git(root, "-c", "commit.gpgsign=false", "commit", message)
+    git(root, "-c", "commit.gpgsign=false", "commit", "-m", message)
 
 
 def test_repository_audit_tracks_inventory_and_secrets(tmp_path: Path):
