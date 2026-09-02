@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "file-bridge": {
+      "command": "file-bridge-mcp",
+      "env": {
+        "GITHUB_REPOSITORY": "nicofroeba16-cell/ha-grok-bridge-live",
+        "GITHUB_BRANCH": "main"
+      }
+    }
+  }
+}
