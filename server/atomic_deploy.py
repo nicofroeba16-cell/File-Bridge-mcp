@@ -68,7 +68,7 @@ class AtomicWorkspaceDeployer:
     def apply(self, files: Iterable[DeploymentFile]) -> DeploymentResult:
         items = validate_deployment(files)
         snapshots: dict[Path, bytes | None] = {}
-        staged: list[tuple[Path, Path]] = []
+        staged: list[tuple[Path, Path | None]] = []
         applied: list[str] = []
         try:
             with tempfile.TemporaryDirectory(prefix=".ai-deploy-", dir=self.root) as tmp:
@@ -92,10 +92,10 @@ class AtomicWorkspaceDeployer:
                             os.fsync(fh.fileno())
                         staged.append((target, staged_path))
                     else:
-                        staged.append((target, Path()))
+                        staged.append((target, None))
 
                 for target, staged_path in staged:
-                    if staged_path:
+                    if staged_path is not None:
                         target.parent.mkdir(parents=True, exist_ok=True)
                         os.replace(staged_path, target)
                     else:
