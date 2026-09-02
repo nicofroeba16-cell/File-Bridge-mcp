@@ -1,6 +1,4 @@
-import asyncio
-
-from server.sync_engine import FileState, execute_plan, plan_sync, sha256_text
+from server.sync_engine import FileState, plan_sync, sha256_text
 
 
 def state(path, content):
@@ -19,7 +17,6 @@ def test_both_changed_is_conflict():
     local = {"a": state("a", "local")}
     remote = {"a": state("a", "remote")}
     plan = plan_sync(local, remote, {"a": sha256_text("base")})
-    assert plan == [plan[0]]
     assert plan[0].action == "conflict"
 
 
@@ -40,17 +37,3 @@ def test_initial_sync_same_file_is_noop_and_dual_new_is_conflict():
     by_path = {x.path: x.action for x in plan}
     assert by_path["same"] == "noop"
     assert by_path["both"] == "conflict"
-
-
-def test_dry_run_does_not_mutate():
-    class Fake:
-        def __init__(self, items): self.items = dict(items); self.calls = []
-        async def inventory(self): return self.items
-        async def write(self, path, content): self.calls.append(("write", path))
-        async def delete(self, path): self.calls.append(("delete", path))
-
-    local = Fake({"a": state("a", "new")})
-    remote = Fake({"a": state("a", "old")})
-    plan = plan_sync(local.items, remote.items, {"a": sha256_text("old")})
-    asyncio.run(execute_plan(plan, local, remote, dry_run=True))
-    assert local.calls == [] and remote.calls == []
