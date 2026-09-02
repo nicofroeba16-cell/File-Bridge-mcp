@@ -12,8 +12,10 @@ from fastapi import HTTPException
 
 try:
     from .security import safe_config_path, validate_text_content
+    from .secret_scanner import assert_safe
 except ImportError:
     from security import safe_config_path, validate_text_content
+    from secret_scanner import assert_safe
 
 
 class LocalWorkspace:
@@ -28,8 +30,6 @@ class LocalWorkspace:
         p = (self.root / safe).resolve()
         if self.root not in p.parents and p != self.root:
             raise HTTPException(400, "path escapes workspace")
-        # A symlink can otherwise redirect a safe-looking relative path to a
-        # protected or external location. Existing symlinks are never followed.
         candidate = self.root / safe
         if candidate.is_symlink():
             raise HTTPException(403, "symlink paths are not allowed")
@@ -57,14 +57,12 @@ class LocalWorkspace:
             return [safe_config_path(rel)]
         out = []
         for p in base.rglob("*"):
-            if not p.is_file() or ".ai-backups" in p.parts:
+            if not p.is_file() or ".ai-backups" in p.parts or p.is_symlink():
                 continue
             try:
                 relative = p.relative_to(self.root)
                 safe_config_path(str(relative))
             except HTTPException:
-                continue
-            if p.is_symlink():
                 continue
             out.append(str(relative))
         return sorted(out)
@@ -117,14 +115,19 @@ class LocalWorkspace:
 
     def write(self, rel: str, content: str, expected_sha256: str | None = None) -> dict[str, Any]:
         validate_text_content(content)
-        p = self.path(rel)
+        safe = safe_config_path(rel)
+        try:
+            assert_safe(safe, content)
+        except ValueError as exc:
+            raise HTTPException(403, str(exc))
+        p = self.path(safe)
         if expected_sha256 is not None and p.exists():
             actual = hashlib.sha256(p.read_bytes()).hexdigest()
             if actual != expected_sha256:
                 raise HTTPException(409, "file changed since it was read (sha256 conflict)")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
-        return self.read(rel)
+        return self.read(safe)
 
     def patch(self, rel: str, old: str, new: str, expected_sha256: str | None = None, count: int = 1) -> dict[str, Any]:
         if not old:
