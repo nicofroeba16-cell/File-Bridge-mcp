@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from server.ha_workflow import HAWorkflow
 
@@ -10,17 +11,19 @@ class FakeTransport:
             return {"id": payload["id"], "ok": True, "path": payload["path"], "content": "mode: old\n"}
         return {"id": payload["id"], "ok": True, "action": payload["action"]}
 
-@pytest.mark.asyncio
-async def test_ha_workflow_read_write_browse_sync():
-    transport = FakeTransport()
-    workflow = HAWorkflow(transport)
-    assert (await workflow.read("read-001", "packages/test.yaml"))["ok"]
-    assert (await workflow.write("write-002", "packages/test.yaml", "mode: new\n"))["ok"]
-    assert (await workflow.browse("browse-003", "packages"))["ok"]
-    assert (await workflow.sync("sync-004"))["ok"]
-    assert [c["id"] for c in transport.commands] == ["read-001", "write-002", "browse-003", "sync-004"]
+def test_ha_workflow_read_write_browse_sync():
+    async def run():
+        transport = FakeTransport()
+        workflow = HAWorkflow(transport)
+        assert (await workflow.read("read-001", "packages/test.yaml"))["ok"]
+        assert (await workflow.write("write-002", "packages/test.yaml", "mode: new\n"))["ok"]
+        assert (await workflow.browse("browse-003", "packages"))["ok"]
+        assert (await workflow.sync("sync-004"))["ok"]
+        assert [c["id"] for c in transport.commands] == ["read-001", "write-002", "browse-003", "sync-004"]
+    asyncio.run(run())
 
-@pytest.mark.asyncio
-async def test_workflow_rejects_unsafe_path():
-    with pytest.raises(Exception):
-        await HAWorkflow(FakeTransport()).read("bad-001", "../secrets.yaml")
+def test_workflow_rejects_unsafe_path():
+    async def run():
+        with pytest.raises(Exception):
+            await HAWorkflow(FakeTransport()).read("bad-001", "../secrets.yaml")
+    asyncio.run(run())
