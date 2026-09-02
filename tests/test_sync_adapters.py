@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 from pathlib import Path
 
@@ -67,30 +68,36 @@ def test_initial_ha_to_github_mirrors_additions_and_deletions():
     assert [(x.action, x.path) for x in plan] == [("push", "a.yaml"), ("delete_remote", "b.yaml")]
 
 
-async def test_local_sync_adapter_inventory_write_delete(tmp_path: Path):
-    ws = LocalWorkspace(tmp_path)
-    ws.write("configuration.yaml", "safe: true\n")
-    adapter = LocalWorkspaceSyncAdapter(ws)
-    inventory = await adapter.inventory()
-    assert inventory["configuration.yaml"].content == "safe: true\n"
-    await adapter.write("configuration.yaml", "safe: false\n")
-    assert ws.read("configuration.yaml")["content"] == "safe: false\n"
-    await adapter.delete("configuration.yaml")
-    assert not (tmp_path / "configuration.yaml").exists()
+def test_local_sync_adapter_inventory_write_delete(tmp_path: Path):
+    async def run():
+        ws = LocalWorkspace(tmp_path)
+        ws.write("configuration.yaml", "safe: true\n")
+        adapter = LocalWorkspaceSyncAdapter(ws)
+        inventory = await adapter.inventory()
+        assert inventory["configuration.yaml"].content == "safe: true\n"
+        await adapter.write("configuration.yaml", "safe: false\n")
+        assert ws.read("configuration.yaml")["content"] == "safe: false\n"
+        await adapter.delete("configuration.yaml")
+        assert not (tmp_path / "configuration.yaml").exists()
+    asyncio.run(run())
 
 
-async def test_github_sync_adapter_inventory_filters_protected_files():
-    adapter = GitHubSyncAdapter(FakeTransport())
-    inventory = await adapter.inventory()
-    assert list(inventory) == ["configuration.yaml"]
-    assert inventory["configuration.yaml"].content == "safe: true\n"
+def test_github_sync_adapter_inventory_filters_protected_files():
+    async def run():
+        adapter = GitHubSyncAdapter(FakeTransport())
+        inventory = await adapter.inventory()
+        assert list(inventory) == ["configuration.yaml"]
+        assert inventory["configuration.yaml"].content == "safe: true\n"
+    asyncio.run(run())
 
 
-async def test_github_sync_adapter_mutations_use_atomic_commits():
-    transport = FakeTransport()
-    adapter = GitHubSyncAdapter(transport)
-    await adapter.write("configuration.yaml", "safe: true\n")
-    await adapter.delete("configuration.yaml")
-    first, second = transport.commits
-    assert first[0][0].path == "configuration.yaml" and first[0][0].content == "safe: true\n"
-    assert second[0][0].path == "configuration.yaml" and second[0][0].content is None
+def test_github_sync_adapter_mutations_use_atomic_commits():
+    async def run():
+        transport = FakeTransport()
+        adapter = GitHubSyncAdapter(transport)
+        await adapter.write("configuration.yaml", "safe: true\n")
+        await adapter.delete("configuration.yaml")
+        first, second = transport.commits
+        assert first[0][0].path == "configuration.yaml" and first[0][0].content == "safe: true\n"
+        assert second[0][0].path == "configuration.yaml" and second[0][0].content is None
+    asyncio.run(run())
