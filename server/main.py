@@ -15,6 +15,7 @@ try:
     from .security import command_allowed, command_is_mutating, safe_config_path
     from .local_workspace import LocalWorkspace
     from .control_mcp import dispatch_control
+    from .status_store import StatusStore
 except ImportError:
     from github_transport import GitHubTransport
     from mcp_server import tool_list
@@ -22,12 +23,14 @@ except ImportError:
     from security import command_allowed, command_is_mutating, safe_config_path
     from local_workspace import LocalWorkspace
     from control_mcp import dispatch_control
+    from status_store import StatusStore
 
-APP_VERSION = "0.9.4-dev"
+APP_VERSION = "0.9.5-dev"
 DEFAULT_TIMEOUT = 180
 transport = GitHubTransport()
 workspace = LocalWorkspace(__import__("os").environ.get("HA_LOCAL_WORKSPACE", "/tmp/ha-grok-bridge-0.5.0-workspace"))
-app = FastAPI(title="HA Grok Bridge 0.9.4", version=APP_VERSION)
+status_store = StatusStore(__import__("os").environ.get("HA_STATUS_FILE", "/tmp/ha-grok-bridge-status.json"))
+app = FastAPI(title="HA Grok Bridge 0.9.5", version=APP_VERSION)
 
 class CommandRequest(BaseModel):
     command: str = Field(min_length=1, max_length=1000)
@@ -42,25 +45,40 @@ class VerifyRequest(BaseModel):
     command_id: str = Field(min_length=1, max_length=100)
 
 def new_id() -> str:
-    return f"ha-094-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
+    return f"ha-095-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
 
 async def execute(command: str, allow_mutation: bool, timeout: int) -> dict[str, Any]:
     command = command.strip()
     if not command_allowed(command):
-        raise HTTPException(403, "command is not allowed by the 0.9.4 server policy")
+        raise HTTPException(403, "command is not allowed by the 0.9.5 server policy")
     if command_is_mutating(command) and not allow_mutation:
         raise HTTPException(409, "mutation requires explicit allow_mutation=true")
     command_id = new_id()
-    result = await transport.execute(BridgeCommand(command_id, command), timeout)
-    return {"verified": result.verified_for(command_id), "command_id": command_id, "result": result.raw}
+    try:
+        result = await transport.execute(BridgeCommand(command_id, command), timeout)
+        verified = result.verified_for(command_id)
+        if verified:
+            status_store.mark_success(command)
+        else:
+            status_store.mark_failure("bridge result verification failed")
+        return {"verified": verified, "command_id": command_id, "result": result.raw}
+    except Exception as exc:
+        status_store.mark_failure(str(exc))
+        raise
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
-    return {"ok": True, "version": APP_VERSION, "repository": transport.repo, "branch": transport.branch, "github_configured": bool(transport.token), "mode": "read-only-default"}
+    status = status_store.load()
+    return {"ok": True, "version": APP_VERSION, "repository": transport.repo, "branch": transport.branch, "github_configured": bool(transport.token), "mode": "read-only-default", "state": status.state, "last_success": status.last_success, "last_failure": status.last_failure, "conflict_count": status.conflict_count, "lock_held": status.lock_held}
+
+@app.get("/status")
+async def bridge_status() -> dict[str, Any]:
+    status = status_store.load()
+    return {"version": APP_VERSION, **status.__dict__}
 
 @app.get("/capabilities")
 async def capabilities() -> dict[str, Any]:
-    return {"version": APP_VERSION, "mode": "read-only-default", "transport": "github-command-result", "tools": tool_list()["tools"], "mutations": "explicit-confirmation-required", "backup_restore": True, "dry_run": True, "secret_audit": True, "reliability": True, "atomic_deployment": True}
+    return {"version": APP_VERSION, "mode": "read-only-default", "transport": "github-command-result", "tools": tool_list()["tools"], "mutations": "explicit-confirmation-required", "backup_restore": True, "dry_run": True, "secret_audit": True, "reliability": True, "atomic_deployment": True, "status_health": True}
 
 @app.post("/ha/status")
 async def ha_status(req: CommandRequest | None = None) -> dict[str, Any]:
@@ -131,6 +149,7 @@ def _validate_modern_headers(message: dict[str, Any], headers: dict[str, str]) -
 
 async def _dispatch_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
     if name in {"ha_control_read", "ha_control_write", "ha_control_browse", "ha_control_sync"}: return await dispatch_control(name, args, transport)
+    if name == "ha_bridge_status": return await bridge_status()
     if name == "ha_capabilities": return await capabilities()
     if name == "ha_status": return await ha_status(CommandRequest(command="ha info"))
     if name == "ha_read_file":
