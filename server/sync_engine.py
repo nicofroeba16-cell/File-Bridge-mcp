@@ -35,6 +35,34 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def plan_initial_sync(
+    local: Mapping[str, FileState],
+    remote: Mapping[str, FileState],
+    *,
+    direction: str,
+) -> list[SyncAction]:
+    """Build an explicit first-sync plan; no ambiguous side is chosen implicitly."""
+    if direction not in {"ha-to-github", "github-to-ha"}:
+        raise ValueError("initial sync direction must be 'ha-to-github' or 'github-to-ha'")
+    actions: list[SyncAction] = []
+    for path in sorted(set(local) | set(remote)):
+        l = local.get(path)
+        r = remote.get(path)
+        if l is not None and r is not None and l.sha256 == r.sha256:
+            actions.append(SyncAction("noop", path, "both sides identical"))
+        elif direction == "ha-to-github":
+            if l is None:
+                actions.append(SyncAction("delete_remote", path, "initial HA-to-GitHub mirror deletion"))
+            else:
+                actions.append(SyncAction("push", path, "initial HA-to-GitHub mirror"))
+        else:
+            if r is None:
+                actions.append(SyncAction("delete_local", path, "initial GitHub-to-HA mirror deletion"))
+            else:
+                actions.append(SyncAction("pull", path, "initial GitHub-to-HA mirror"))
+    return actions
+
+
 def plan_sync(
     local: Mapping[str, FileState],
     remote: Mapping[str, FileState],
