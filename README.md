@@ -1,6 +1,6 @@
-# HA Grok Bridge 0.5.0 — local MCP development build
+# HA Grok Bridge / File-Bridge MCP 1.0.0
 
-Local-only development build for the KI-fähige HA Grok Bridge.
+Current production source for the File-Bridge MCP gateway. Version `1.0.0` is the released baseline.
 
 ## Scope
 
@@ -26,7 +26,10 @@ pytest -q
 The test suite covers MCP discovery/list/call behavior, header routing, schema validity,
 argument errors, security policy, and a mocked bridge execution path.
 
-## Important
+## Runtime boundary
 
-This is a local 0.5.0 development build. It does **not** replace the live bridge,
-does not modify `/config`, and is not pushed to the production GitHub repository.
+The MCP/API process does not mount Home Assistant `/config` directly. It operates through the GitHub control plane and keeps mutations behind explicit confirmation and policy checks.
+
+The preferred current bridge workflow is the structured `.ai-control/commands` → `.ai-control/results` channel. Legacy `command.json` / `result.json` support remains for compatibility where required.
+
+A green File-Bridge CI run proves this repository commit, not a Home Assistant deployment. Runtime deployment must be verified separately.

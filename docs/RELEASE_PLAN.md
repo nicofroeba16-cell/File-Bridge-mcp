@@ -1,8 +1,8 @@
 # Release plan
 
-## Baseline
+## Historical baseline
 
-`v0.5.0` is the immutable baseline. It passed the local release gate before publication.
+`v0.5.0` was the immutable early baseline. The completed release line progressed through the staged gates below to `v1.0.0`.
 
 ## Release sequence
 
@@ -64,4 +64,4 @@ The final release must cover the project specification end-to-end:
 
 ## Current state
 
-`main` contains the 0.5.1 hardening work. It is **not** a release until the release gate is green. No version is allowed to skip the gate.
+`v1.0.0` is the current released baseline and `main` is CI-green at that release line. Future changes still require the same compile, test, MCP/E2E, security, and repository gates before a new version is published.

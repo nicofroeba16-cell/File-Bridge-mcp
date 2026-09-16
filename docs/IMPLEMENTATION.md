@@ -1,4 +1,4 @@
-# 0.5.0 implementation block 1
+# 1.0.0 implementation
 
 ## MCP core
 
@@ -7,10 +7,11 @@ The HA logic is deliberately separated from MCP transport so the Apps SDK transp
 
 ## Internal protocol
 
-`server/protocol.py` defines the command/result contract:
-- command: `{id, command}`
-- result: bridge `result.json`
-- verification requires matching `id` and `ok: true`
+The server supports two GitHub-backed control contracts:
+- structured `.ai-control/commands/<id>.json` → `.ai-control/results/<id>.json` for `read`, `browse`, `write`, and `sync`,
+- legacy `command.json` → `result.json` compatibility for command execution.
+
+Verification always requires correlation to the requested command ID; unmatched or stale results are never accepted as success.
 
 ## GitHub transport
 
@@ -23,14 +24,13 @@ The HA logic is deliberately separated from MCP transport so the Apps SDK transp
 
 ## Security
 
-`server/security.py` mirrors the currently known 0.3.x command allowlist and rejects shell chaining/redirection. Paths are relative to `/config`; protected runtime and secret paths are denied.
+`server/security.py` and the workspace/control layers enforce read-only-by-default behavior, explicit mutation confirmation, path normalization, protected runtime/secret exclusions, conflict checks, and secret scanning. The bridge remains an independent enforcement boundary for Home Assistant runtime operations.
 
-## Phase-1 read tools
+## Current tool groups
 
-- `ha_status` -> `ha info`
-- `ha_read_file` -> tracked-file `git -C /config show HEAD:path`
-- `ha_list_files` -> tracked-file `git -C /config ls-tree -r --name-only HEAD -- path`
-- `ha_run_allowed_command` -> server allowlist + bridge allowlist
-- `ha_verify` -> current `result.json` correlation
+- Local workspace: `ha_read_file`, `ha_list_files`, `ha_search`, `ha_analyze`, plus confirmation-gated write/patch/backup/rollback tools.
+- Structured Home Assistant control: `ha_control_read`, `ha_control_browse`, `ha_control_write`, and `ha_control_sync` over `.ai-control`.
+- Legacy command compatibility: `ha_status`, `ha_run_allowed_command`, and `ha_verify` over the command/result transport.
+- Repository/runtime diagnostics: `ha_bridge_status`, `ha_repository_audit`, and `ha_capabilities`.
 
-The server has no `/config` mount and does not directly access the Home Assistant filesystem.
+The MCP server itself has no direct Home Assistant `/config` mount. Home Assistant runtime access is verified through the bridge control plane.
